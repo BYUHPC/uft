@@ -10,13 +10,9 @@
  * See also: https://www.kernel.org/doc/Documentation/cgroups/memory.txt
  *
  * Assumptions:
- *     - One cgroup per user
- *         - To change: check open fd of other processes in /proc/$pid/fd/
  *     - You want to notify all of a user's TTYs
  *     - TTYs are in /dev/pts/
  *         - Change DEV_TTY_GLOB if not
- *     - This process is launched inside the target cgroup
- *         - Change get_cgroup_path() if not
  *
  * Author:   Ryan Cox <ryan_cox@byu.edu>
  * License:  MIT/Expat License (http://opensource.org/licenses/MIT)
