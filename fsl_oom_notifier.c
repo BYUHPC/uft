@@ -58,7 +58,7 @@
     do { perror(msg); exit(1); } while (0)
 
 
-#define ERROR_MSG_TO_USER "You exceeded your memory limit on this host. The kernel invoked the oom-killer which killed a process of yours to free up memory. No further action is required.\nRun 'loginlimits' to see the current limits."
+#define ERROR_MSG_TO_USER "You exceeded your memory limit on this host. The kernel invoked the oom-killer which killed a process of yours to free up memory. No further action is required.\nRun 'loginlimits' to see the current limits.\a"
 #define DEV_TTY_GLOB "/dev/pts/*"
 #define TIMEOUT_SECONDS 60
 
@@ -242,7 +242,7 @@ void writeToUserTTYs(uid_t uid) {
 
 	time(&localtime);
 	ctime_r(&localtime, localtime_str);
-	sprintf(msg, "\n\n<<<<<<<<<<<<<<\n%s\n%s\n>>>>>>>>>>>>>>\n\n", localtime_str, ERROR_MSG_TO_USER);
+	sprintf(msg, "\e[31m\n\n<<<<<<<<<<<<<<\n%s\n%s\n>>>>>>>>>>>>>>\e[0m\n\n", localtime_str, ERROR_MSG_TO_USER);
 	globbuf.gl_offs = 0;
 	glob(DEV_TTY_GLOB, GLOB_NOSORT, NULL, &globbuf);
 	for(i=0; i < globbuf.gl_pathc; i++) {
