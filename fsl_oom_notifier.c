@@ -34,6 +34,7 @@
 
 #define ERROR_MSG_TO_USER "\nYou exceeded your memory limit on this host. The kernel invoked the oom-killer which killed a process of yours to free up memory. No further action is required.\nRun 'loginlimits' to see the current limits.\n\n"
 
+//#define DEBUG(args...) printf("DEBUG: "); printf(args); printf("\n");
 //#define DEBUG(args...) fprintf(debugfd, "DEBUG: "); fprintf(debugfd, ##args); fprintf(debugfd, "\n"); fflush(debugfd);
 #define DEBUG(args...) errno == 1;
 
@@ -234,7 +235,7 @@ void writeToActiveTty(uid_t uid) {
 	int ttyfd;
 	ssize_t s;
 	DEBUG("Finding most recent tty\n");
-	most_recent_time = findActiveTty(uid, &path);
+	most_recent_time = findActiveTty(uid, path);
 	DEBUG("FOUND most recent tty\n");
 	if(most_recent_time == 0)
 		return;
@@ -252,6 +253,72 @@ void writeToActiveTty(uid_t uid) {
 	close(ttyfd);
 }
 
+int get_memcg_self_path(char *path) {
+	FILE *fp;
+	int is_memory_cgroup_line, pos, retval = 0;
+	char *strtok_ptr, *str1, *token, line[512];
+	fp = fopen("/proc/self/cgroup", "r");
+	if(fp==NULL) {
+		printf("failed to open /proc/self/cgroup");
+		exit(1);
+	}
+	while(fgets(line, 512, fp) != NULL) {
+		is_memory_cgroup_line = 0;
+		for (pos = 0, str1 = line; ; pos++, str1 = NULL) {
+			token = strtok_r(str1, ":", &strtok_ptr);
+			if(token == NULL)
+				break;
+			if(pos == 1 && strcmp(token, "memory") == 0)
+				is_memory_cgroup_line = 1;
+			else if(pos == 2 && is_memory_cgroup_line) {
+				/* strip newline */
+				strncpy(path, token, strlen(token));
+				path[strlen(token)-1] = '\0';
+				retval = 1;
+			}
+		}
+	}
+	fclose(fp);
+	return retval;
+}
+
+int get_memcg_mount_path(char *path) {
+	FILE *fp;
+	int is_memory_cgroup_line, pos, retval = 0;
+	char *strtok_ptr, *str1, *token, line[512];
+	fp = fopen("/proc/mounts", "r");
+	if(fp==NULL) {
+		printf("failed to open /proc/mounts");
+		exit(1);
+	}
+	while(fgets(line, 512, fp) != NULL) {
+		is_memory_cgroup_line = 0;
+		for (pos = 0, str1 = line; ; pos++, str1 = NULL) {
+			token = strtok_r(str1, " ", &strtok_ptr);
+			if(token == NULL)
+				break;
+			if(pos == 0 && strcmp(token, "memory") == 0)
+				is_memory_cgroup_line = 1;
+			else if(pos == 1 && is_memory_cgroup_line) {
+				strcpy(path, token);
+				retval = 1;
+			}
+		}
+	}
+	fclose(fp);
+	return retval;
+}
+
+int get_cgroup_path(char *memcg_path) {
+	char mount_path[256], self_path[256];
+	if(!get_memcg_mount_path(mount_path))
+		return 1;
+	if(!get_memcg_self_path(self_path))
+		return 1;
+	sprintf(memcg_path, "%s%s", mount_path, self_path);
+	return 0;
+}
+
 int main(int argc, char *argv[]) {
 	int efd, ecfd, oomfd;
 	uint64_t u;
@@ -261,38 +328,28 @@ int main(int argc, char *argv[]) {
 	struct passwd pwd;
 	char username[32];
 	char filename[255];
-	char write_cmd[40], process_name[40];
-	char pgrep_dups[80];
 	FILE *write_pipe;
 	struct timeval timeout;
 	int retval;
 	fd_set set;
+	char memcg_path[255];
 
 	uid = getuid();
 	/* don't monitor root */
 	if(uid == 0)
 		exit(0);
-//	debugfd = fopen("/fslhome/ryancox/test9983", "w");
-	//DEBUG("Opened debugfd");
 	if(findDuplicate(argv[0], uid))
 		exit(0);
 	DEBUG("Will daemonize\n");
 	//exit(19);
 	daemonize();
 	getUsernameFromUid(uid, username);	
-	//sprintf(process_name, "fsl_oom_notifier %s\0", username);
 
-	//fclose(stdout);
-//	sprintf(pgrep_dups, "pgrep -xf 'fsl_oom_notifier %s' >/dev/null 2>&1", username);
-	/* don't run if this is a dup */
-//	if(retval = system(pgrep_dups) == 0)
-//		exit(4);
-//	strncpy(argv[0], process_name, 40);
+	get_cgroup_path(memcg_path);
+	DEBUG("memcg_path: '%s'\n", memcg_path);
 
-
-
-	sprintf(write_cmd, "write %s", username);
-	sprintf(filename, "/cgroup/memory/users/user_%s/memory.oom_control", username);
+	//sprintf(filename, "/cgroup/memory/users/user_%s/memory.oom_control", username);
+	sprintf(filename, "%s/memory.oom_control", memcg_path);
 
 
 	DEBUG("Will open filename '%s'\n", filename);	
@@ -304,7 +361,7 @@ int main(int argc, char *argv[]) {
 	if(efd == -1)
 		handle_error("efd");
 
-	sprintf(filename, "/cgroup/memory/users/user_%s/cgroup.event_control", username);
+	sprintf(filename, "%s/cgroup.event_control", memcg_path);
 	DEBUG("Will open filename '%s'\n", filename);
 	ecfd = open(filename, O_WRONLY);
 	if(ecfd == -1)
@@ -318,7 +375,6 @@ int main(int argc, char *argv[]) {
 
 
 	while(1) {
-		DEBUG("About to read\n");
 		DEBUG("About to read");
 		do {
 			timeout.tv_sec = 30;
@@ -342,15 +398,10 @@ int main(int argc, char *argv[]) {
 			handle_error("read");
 		DEBUG("Parent read %llu (0x%llx) from efd\n",
 			(unsigned long long) u, (unsigned long long) u);
-		//exit(EXIT_SUCCESS);
 
 		/* Wait a moment for the oom-killer to take effect. */
 		sleep(2);
 		writeToActiveTty(uid);
-		/*write_pipe = popen(write_cmd, "w");
-		//fwrite(write_pipe, ERROR_MSG_TO_USER, strlen(ERROR_MSG_TO_USER));
-		fwrite(ERROR_MSG_TO_USER, strlen(ERROR_MSG_TO_USER)+1, 1, write_pipe);
-		pclose(write_pipe);*/
 	}
 	exit(0);
 }
