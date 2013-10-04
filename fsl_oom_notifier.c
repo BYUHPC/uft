@@ -1,19 +1,49 @@
-/* This program notifies a user when the oom-killer kills
- * a process in that user's cgroup.  It will only allow one
- * copy of itself to run and exits if another program of the
- * same name by the same user exists.  It terminates if the
- * user has no other processes except this one within a
- * certain amount of time.  The notification is done to the
- * most recently used tty.  This was not coded in a portable
- * fashion but should be relatively easy to port to other
- * Unix-like systems.
+/* 
+ * Description:
+ * This program notifies a user when the oom-killer kills a process in that
+ * user's cgroup.  It will only allow one copy of itself to run and exits if
+ * another program of the same name by the same user exists.  It terminates
+ * if the user has no other processes except this one within a certain amount
+ * of time.  The notification is done to all of a user's ttys.  This was not
+ * coded in a portable fashion so minor changes may be necessary for
+ * different kernels/distros.
+ * See also: https://www.kernel.org/doc/Documentation/cgroups/memory.txt
  *
- * Author:    Ryan Cox <ryan_cox@byu.edu>
- * Date:      September 2013
- * Copyright: Brigham Young University
- * License:   GNU GPL Version 2
+ * Assumptions:
+ *     - One cgroup per user
+ *         - To change: check open fd of other processes in /proc/$pid/fd/
+ *     - You want to notify all of a user's TTYs
+ *     - TTYs are in /dev/pts/
+ *         - Change DEV_TTY_GLOB if not
+ *     - This process is launched inside the target cgroup
+ *         - Change get_cgroup_path() if not
+ *
+ * Author:   Ryan Cox <ryan_cox@byu.edu>
+ * License:  MIT/Expat License (http://opensource.org/licenses/MIT)
+ *
+ * Copyright (C) 2013 Brigham Young University
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *  
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
  *
  */
+
+#include <libgen.h>
 #include <sys/eventfd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -23,55 +53,24 @@
 #include <stdint.h>             /* Definition of uint64_t */
 #include <stdio.h>
 #include <string.h>
-#include <pwd.h>
 #include <errno.h>
 #include <glob.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #define handle_error(msg) \
     do { perror(msg); exit(1); } while (0)
 
 
-#define ERROR_MSG_TO_USER "\nYou exceeded your memory limit on this host. The kernel invoked the oom-killer which killed a process of yours to free up memory. No further action is required.\nRun 'loginlimits' to see the current limits.\n\n"
+#define ERROR_MSG_TO_USER "You exceeded your memory limit on this host. The kernel invoked the oom-killer which killed a process of yours to free up memory. No further action is required.\nRun 'loginlimits' to see the current limits."
+#define DEV_TTY_GLOB "/dev/pts/*"
+#define TIMEOUT_SECONDS 60
 
 //#define DEBUG(args...) printf("DEBUG: "); printf(args); printf("\n");
 //#define DEBUG(args...) fprintf(debugfd, "DEBUG: "); fprintf(debugfd, ##args); fprintf(debugfd, "\n"); fflush(debugfd);
-#define DEBUG(args...) errno == 1;
+#define DEBUG(args...) ;
 
 FILE *debugfd;
-
-int getUsernameFromUid(uid_t uid, char *username) {
-	struct passwd pwd;
-	struct passwd *result;
-	char *buf;
-	size_t bufsize;
-	int s;
-
-	bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
-	if (bufsize == -1)          /* Value was indeterminate */
-		bufsize = 16384;        /* Should be more than enough */
-
-	buf = malloc(bufsize);
-	if (buf == NULL) {
-		perror("malloc");
-		return 0;
-	}
-
-	s = getpwuid_r(uid, &pwd, buf, bufsize, &result);
-	if (result == NULL) {
-		if (s == 0) {
-			DEBUG("Not found\n");
-		} else {
-			errno = s;
-			perror("getpwnam_r");
-		}
-		return 0;
-	}
-
-	strcpy(username, pwd.pw_name);
-	return 1;
-
-}
 
 void daemonize() {
 	chdir("/");
@@ -83,24 +82,7 @@ void daemonize() {
 	setsid();
 }
 
-/*int findDuplicate(char *argv[]) {
-	DIR *procdir;
-	int name_max, len;
-	struct dirent *entryp;
-	struct dirent *result;
-	name_max = pathconf(dirpath, _PC_NAME_MAX);
-	if (name_max == -1)         /* Limit not defined, or error */
-/*		name_max = 255;         /* Take a guess */
-/*	len = offsetof(struct dirent, d_name) + name_max + 1;
-	entryp = malloc(len);
-
-	procdir = opendir("/proc");
-	
-}*/
-
-
 int walkUserProcesses(int (*cb)(char *, uid_t, pid_t, pid_t, char *), char *arg1) {
-//int findDuplicate(char *progname, uid_t uid) {
 	int i, retval;
 	glob_t globbuf;
 	struct stat stat;
@@ -116,15 +98,10 @@ int walkUserProcesses(int (*cb)(char *, uid_t, pid_t, pid_t, char *), char *arg1
 	glob("/proc/[0-9]*", GLOB_NOSORT, NULL, &globbuf);
 	for(i=0; i < globbuf.gl_pathc; i++) {
 		if(lstat(globbuf.gl_pathv[i], &stat)==0) {
-		//	DEBUG("  Owner is %d\n", stat.st_uid);
 			if(stat.st_uid == uid) {
-				DEBUG("11\n");
 				strncpy(path_temp, globbuf.gl_pathv[i], 40);
-				DEBUG("14\n");
-				bname = basename(globbuf.gl_pathv[i]);
-				DEBUG("15  %s\n", path_temp);
+				bname = (char *)basename(globbuf.gl_pathv[i]);
 				examine_pid = atol(bname);
-				DEBUG("17\n");
 				DEBUG("Calling callback for pid:%d, uid:%d, $$:%d\n", examine_pid, uid, pid);
 				if(retval = cb((char *)globbuf.gl_pathv[i], (uid_t)uid, (pid_t)pid, (pid_t)examine_pid, (char *)arg1)) {
 					DEBUG("callback returned > 0\n");
@@ -135,53 +112,48 @@ int walkUserProcesses(int (*cb)(char *, uid_t, pid_t, pid_t, char *), char *arg1
 		}
 	}
 		
-
-	//DEBUG("Done with walkUserProcesses. Freeing globbuf. return 0");
 	globfree(&globbuf);
-	DEBUG("Freed.\n");
-	//DEBUG("Couldn't find match for '%s'\n", progname);
 	return 0;
 }
 
-//int findDuplicate_cb(char *progname, uid pid_t pid) {
 int findDuplicate(char *progname, uid_t uid) {
+	char mycmdline[1024];
+	int fd, bytes, i;
+
+	fd = open("/proc/self/cmdline", O_RDONLY);
+	if(fd == -1)
+		handle_error("Couldn't open /proc/self/cmdline?!");
+	bytes = read(fd, mycmdline, 1024);
+	close(fd);
+	/* args are separated by \0. replace with space */
+	for(i = 0; i < bytes-1; i++)
+		if(mycmdline[i] == '\0')
+			mycmdline[i] = ' ';
+
 	int findDuplicate_cb(char *path, uid_t uid, pid_t mypid, pid_t examine_pid, char *progname) {
-	  //int (*cb)(char *path, uid_t uid, pid_t pid) = {
-	//  int cb (char *path, uid_t uid, pid_t pid) {
-		int fd;
-		char filename[255];
-		char cmdline[255];
+		int fd, bytes, i;
+		char filename[1024];
+		char cmdline[1024];
 		sprintf(filename, "%s/cmdline", path);
 		DEBUG("Will open '%s'\n", filename);
 		fd = open(filename, O_RDONLY);
 		if(fd != -1) {
 		DEBUG("    Did open '%s'\n", filename);
-			read(fd, cmdline, 255);
-			DEBUG("TESTING '%s': %s.\n", progname, path);
-			if(strcmp(progname, cmdline)==0) {
-				if(mypid != examine_pid) {
-					DEBUG("Found match for '%s': %s.\n", progname, path);
-					return 1;
-				}
-				DEBUG("Found match for '%s': %s. Ignoring because it's me!\n", progname, path);
-			}
+			bytes = read(fd, cmdline, 1024);
 			close(fd);
+			for(i = 0; i < bytes-1; i++)
+				if(cmdline[i] == '\0')
+					cmdline[i] = ' ';
+			if(strcmp(progname, cmdline)==0) {
+				if(mypid != examine_pid)
+					return 1;
+			}
 		}
 		return 0;
-	  //}
-	//  walkUserProcesses(&cb);
-
 	}
-	return walkUserProcesses(&findDuplicate_cb, progname);
+	return walkUserProcesses(&findDuplicate_cb, mycmdline);
 }
 
-/*int findDuplicate(char *progname, uid_t uid) {
-
-
-
-	walkUserProcesses(uid, &findDuplicate_cb);
-}
-*/
 int userHasOtherProcesses(uid_t uid) {
 	int retval;
 	int userHasOtherProcesses_cb(char *path, uid_t uid, pid_t mypid, pid_t examine_pid, char *progname) {
@@ -200,7 +172,7 @@ int userHasOtherProcesses(uid_t uid) {
 	return retval;
 }
 
-int findActiveTty(uid_t uid, char *path) {
+/*int findActiveTty(uid_t uid, char *path) {
 	glob_t globbuf;
 	char most_recent_tty[255];
 	time_t most_recent_time;
@@ -227,8 +199,8 @@ int findActiveTty(uid_t uid, char *path) {
 	globfree(&globbuf);
 	strncpy(path, most_recent_tty, 255);
 	return most_recent_time;
-}
-
+}*/
+/*
 void writeToActiveTty(uid_t uid) {
 	char path[255];
 	int most_recent_time;
@@ -251,6 +223,40 @@ void writeToActiveTty(uid_t uid) {
         if(s != strlen(ERROR_MSG_TO_USER))
                	DEBUG("Error writing to %s\n", path);
 	close(ttyfd);
+}*/
+
+void writeToTTY(char *path, char *msg) {
+	int ttyfd;
+	ssize_t s;
+
+	ttyfd = open(path, O_WRONLY);
+	s = write(ttyfd, msg, strlen(msg));
+	if(s != strlen(ERROR_MSG_TO_USER))
+		DEBUG("Error writing to %s\n", path);
+	close(ttyfd);
+}
+
+void writeToUserTTYs(uid_t uid) {
+	glob_t globbuf;
+	struct stat stat;
+	int i;
+	char msg[1024];
+	time_t localtime;
+	char localtime_str[26];
+
+	time(&localtime);
+	ctime_r(&localtime, localtime_str);
+	sprintf(msg, "\n\n<<<<<<<<<<<<<<\n%s\n%s\n>>>>>>>>>>>>>>\n\n", localtime_str, ERROR_MSG_TO_USER);
+	globbuf.gl_offs = 0;
+	glob(DEV_TTY_GLOB, GLOB_NOSORT, NULL, &globbuf);
+	for(i=0; i < globbuf.gl_pathc; i++) {
+		if(lstat(globbuf.gl_pathv[i], &stat)==0) {
+			if(stat.st_uid == uid) {
+				writeToTTY(globbuf.gl_pathv[i], msg);
+			}
+		}
+	}
+	globfree(&globbuf);
 }
 
 int get_memcg_self_path(char *path) {
@@ -258,10 +264,8 @@ int get_memcg_self_path(char *path) {
 	int is_memory_cgroup_line, pos, retval = 0;
 	char *strtok_ptr, *str1, *token, line[512];
 	fp = fopen("/proc/self/cgroup", "r");
-	if(fp==NULL) {
-		printf("failed to open /proc/self/cgroup");
-		exit(1);
-	}
+	if(fp==NULL)
+		handle_error("failed to open /proc/self/cgroup");
 	while(fgets(line, 512, fp) != NULL) {
 		is_memory_cgroup_line = 0;
 		for (pos = 0, str1 = line; ; pos++, str1 = NULL) {
@@ -309,30 +313,76 @@ int get_memcg_mount_path(char *path) {
 	return retval;
 }
 
-int get_cgroup_path(char *memcg_path) {
-	char mount_path[256], self_path[256];
+char * get_cgroup_path() {
+	char *memcg_path;
+	char mount_path[1024], self_path[1024], path[1024];
 	if(!get_memcg_mount_path(mount_path))
-		return 1;
+		handle_error("Couldn't find memory cgroup mount point in /proc/mounts");
 	if(!get_memcg_self_path(self_path))
-		return 1;
-	sprintf(memcg_path, "%s%s", mount_path, self_path);
-	return 0;
+		handle_error("Couldn't find memory cgroup path in /proc/self/cgroup. Am I in a cgroup yet?");
+	memcg_path = (char *)malloc(sizeof(char) * (strlen(mount_path) + strlen(self_path) + 1));
+	sprintf(path, "%s%s", mount_path, self_path);
+	strcpy(memcg_path, path);
+	return memcg_path;
+}
+
+int open_event_fd(char *memcg_path) {
+	int efd, ecfd, oomfd;
+	char ecfd_str[32];
+	char *filename;
+	ssize_t s;
+	filename = malloc(sizeof(char) * (strlen(memcg_path) + 22));
+	sprintf(filename, "%s/memory.oom_control", memcg_path);
+	oomfd = open(filename, O_RDONLY);
+	if(oomfd == -1)
+		handle_error("open oomfd");
+
+	efd = eventfd(0, 0);
+	if(efd == -1)
+		handle_error("open efd");
+
+	sprintf(filename, "%s/cgroup.event_control", memcg_path);
+	ecfd = open(filename, O_WRONLY);
+	if(ecfd == -1)
+		handle_error("open ecfd");
+
+	free(filename);
+
+	/* configure event_control with file descriptors */
+	sprintf(ecfd_str, "%d %d", efd, oomfd);
+	s = write(ecfd, &ecfd_str, strlen(ecfd_str));
+	if(s != strlen(ecfd_str))
+		handle_error("writing to cgroup.event_control");
+
+	return efd;
+}
+
+void usage(char *progname) {
+	printf(	"usage: %s <path to memory cgroup directory>\n\n"
+		"The path is optional. If none is provided, the current "
+		"memory cgroup will be used. An invalid cgroup or path "
+		"will result in a silent failure.\n", progname );
 }
 
 int main(int argc, char *argv[]) {
-	int efd, ecfd, oomfd;
+	int efd;
 	uint64_t u;
 	ssize_t s;
-	char ecfd_str[32];
 	uid_t uid;
-	struct passwd pwd;
-	char username[32];
-	char filename[255];
-	FILE *write_pipe;
 	struct timeval timeout;
 	int retval;
 	fd_set set;
-	char memcg_path[255];
+	char *memcg_path;
+
+	if(argc > 2) {
+		usage(argv[0]);
+		exit(1);
+	} else if(argc==2 && argv[1][0] == '-') {
+		/* any attempt at -helpme, etc */
+		usage(argv[0]);
+		exit(0);
+	}
+	
 
 	uid = getuid();
 	/* don't monitor root */
@@ -340,68 +390,46 @@ int main(int argc, char *argv[]) {
 		exit(0);
 	if(findDuplicate(argv[0], uid))
 		exit(0);
-	DEBUG("Will daemonize\n");
-	//exit(19);
+
 	daemonize();
-	getUsernameFromUid(uid, username);	
 
-	get_cgroup_path(memcg_path);
-	DEBUG("memcg_path: '%s'\n", memcg_path);
+	if(argc == 2)
+		memcg_path = argv[1];
+	else
+		memcg_path = get_cgroup_path();
 
-	//sprintf(filename, "/cgroup/memory/users/user_%s/memory.oom_control", username);
-	sprintf(filename, "%s/memory.oom_control", memcg_path);
+	efd = open_event_fd(memcg_path);
 
-
-	DEBUG("Will open filename '%s'\n", filename);	
-	oomfd = open(filename, O_RDONLY);
-	if(oomfd == -1)
-		handle_error("oomfd");
-
-	efd = eventfd(0, 0);
-	if(efd == -1)
-		handle_error("efd");
-
-	sprintf(filename, "%s/cgroup.event_control", memcg_path);
-	DEBUG("Will open filename '%s'\n", filename);
-	ecfd = open(filename, O_WRONLY);
-	if(ecfd == -1)
-		handle_error("ecfd");
-
-	sprintf(ecfd_str, "%d %d", efd, oomfd);
-	DEBUG("Will write to cgroup.event_control:  %s\n", ecfd_str);
-	s = write(ecfd, &ecfd_str, strlen(ecfd_str));
-	if(s != strlen(ecfd_str))
-		handle_error("writing to cgroup.event_control");
-
-
+	if(argc != 2)
+		free(memcg_path);
 	while(1) {
-		DEBUG("About to read");
 		do {
-			timeout.tv_sec = 30;
+			/* Check periodically if the user has other processes.
+			   Exit if none exist */
+			timeout.tv_sec = TIMEOUT_SECONDS;
 			timeout.tv_usec = 0;
-
 			FD_ZERO(&set);
 			FD_SET(efd, &set);
+
+			/* check for data in efd (i.e. oom condition triggered)  */
 			retval = select(FD_SETSIZE, &set, NULL, NULL, &timeout);
 			if(retval == 0) {
-				DEBUG("No data. Checking if the user has other processes");
+				/* select() timed out */
 				if(userHasOtherProcesses(uid)==0)
 					exit(0);
 			} else {
-				DEBUG("Found data");
+				/* select() found data or it failed */
 				s = read(efd, &u, sizeof(uint64_t));
 			}
-			DEBUG("Looping");
 		} while(retval < 1);
 		DEBUG("Exited loop");
 		if (s != sizeof(uint64_t))
-			handle_error("read");
-		DEBUG("Parent read %llu (0x%llx) from efd\n",
-			(unsigned long long) u, (unsigned long long) u);
+			handle_error("reading from event fd");
 
 		/* Wait a moment for the oom-killer to take effect. */
-		sleep(2);
-		writeToActiveTty(uid);
+		sleep(4);
+//		writeToActiveTty(uid);
+		writeToUserTTYs(uid);
 	}
 	exit(0);
 }
