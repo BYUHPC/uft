@@ -1,0 +1,45 @@
+#!/bin/bash
+
+WHITELIST="/usr/libexec/openssh/sftp-server /usr/sbin/sshd /usr/bin/ssh /usr/bin/scp /usr/bin/rsync /usr/bin/sftp /bin/cp /bin/mv /bin/rm /bin/tar /bin/gzip /usr/bin/bzip2 /usr/bin/zip"
+CURRENT_DATE=$(date +%s)
+renice -n 10 $$ >/dev/null 2>/dev/null
+
+function whitelisted {
+	local exe="$1"
+	for cmd in $WHITELIST
+	do
+		#echo Trying "$exe"...
+		if [ "$exe" == "$cmd" ]
+		then
+			return 0
+		fi
+	done
+	return 1
+}
+
+function is_old_enough {
+	local procdir=$1
+	if [[ $(($CURRENT_DATE-$(stat -c %Y "$procdir"))) -gt 60 ]]
+	then
+		return 0
+	else
+		#skip this one since the script will run again before the limit is hit
+		#this avoids a possible(?) race condition where sshd has its limit removed before its children are launched
+		return 1
+	fi
+}
+
+for procdir in /proc/[0-9]*
+do
+	uid=$(stat -c %u "$procdir/")
+	if [ "$uid" != 0 ]
+	then
+		pid=$(basename $procdir)
+		exe=$(readlink "$procdir/exe")
+		if whitelisted "$exe" && is_old_enough "$procdir"
+		then
+			#echo Will remove limit in pid=$pid uid=$(stat -c %U "$procdir/"): $(cat "$procdir/cmdline")
+			echo -n 'Max cpu time=unlimited:unlimited' > "$procdir/limits"
+		fi
+	fi
+done
