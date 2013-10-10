@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Original Author:  Ryan Cox <ryan_cox@byu.edu>
+#
+# Copyright (C) 2013, Brigham Young University
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+mem_cg="$(awk '$3 ~ /cgroup/ && $1 ~ /^memory$/ {print $2;}' /proc/mounts)$(awk -F: '$2 ~ /^memory$/ {print $3}' /proc/self/cgroup)"
+cpu_cg="$(awk '$3 ~ /cgroup/ && $1 ~ /^cpu$/ {print $2;}' /proc/mounts)$(awk -F: '$2 ~ /^cpu$/ {print $3}' /proc/self/cgroup)"
+
+totalcpus=$(grep -c processor /proc/cpuinfo)
+soft_cpus=$((($totalcpus*$(cat $cpu_cg/cpu.shares))/1024))
+memlimit=$(($(cat $mem_cg/memory.limit_in_bytes)/(1024*1024)))
+memswlimit=$(($(cat $mem_cg/memory.memsw.limit_in_bytes)/(1024*1024)))
+cpumins=$(($(ulimit -t)/60))
+
+echo -e "\e[1mExplanation:\e[0m"
+cat <<EOF
+Soft core limits allow a user to use 100% of all processor cores when no other user is contending for CPU time. When other users are trying to run programs, this limit attempts to balance the usage of multiple users such that each user gets to use $soft_cpus cores. This is a rough number and the results are anything but guaranteed.
+
+The memory and memory+swap limits are for all processes run by a user on this node. If a user hits the memory limit, some of that user's processes may be swapped out. Once the memory+swap limit is reached, the kernel will use the out-of-memory killer to kill one or more of that user's processes to lower the memory usage. Only the offending user's processes are sent into swap or subject to the oom-killer.
+
+The cputime limit is used to make this login node strictly a login node. Development, compiling, moving files around, and some limited testing of programs are permitted on login nodes. The testing should be limited to running the program for a few minutes. Note that "cputime" means CPU usage * time, so multi-threaded programs will hit the limit sooner.  Unfortunately scp and sftp are limited by this limit too; use scp.fsl.byu.edu for large file transfers.
+
+EOF
+echo -e "\e[1mLimits:\e[0m"
+printf "%20s: %d\n" "Soft core limit" $soft_cpus
+printf "%20s: %d MB\n" "Memory limit" $memlimit
+printf "%20s: %d MB\n" "Memory+Swap limit" $memswlimit
+printf "%20s: %d CPU-minutes\n" "cputime per process" $cpumins
+echo -e "\nOther limits are viewable by running 'ulimit -a' ('limit' in tcsh)"
