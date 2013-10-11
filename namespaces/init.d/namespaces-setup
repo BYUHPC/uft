@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# namespaces-setup	Create user tmp and shm directories for namespaces
+#
+# chkconfig: 2345 50 65
+# description: namespaces-setup creates directories for use with \
+# namespaces. Sets up /tmp and /dev/shm  -Ryan Cox. BYU. July 2013
+
+# Source function library.
+. /etc/init.d/functions
+
+RETVAL=0
+prog="namespaces-setup"
+LOCKFILE="/var/lock/subsys/$prog"
+
+create_directories() {
+	mkdir -pm 000 /tmp/userns
+	mkdir -pm 000 /dev/shm/userns
+	mount --make-shared /
+	mount --bind /tmp /tmp
+	mount --make-private /tmp
+	mount --bind /dev/shm /dev/shm
+	mount --make-private /dev/shm
+}
+
+start() {
+	action $"Creating tmp and shm directories for namespaces" create_directories
+	[ $? -eq 0 ] && touch "$LOCKFILE"
+}
+
+# See how we were called.
+case "$1" in
+  start)
+	start
+        ;;
+  *)
+        echo $"Usage: $0 {start}"
+        RETVAL=3
+esac
+
+exit $RETVAL

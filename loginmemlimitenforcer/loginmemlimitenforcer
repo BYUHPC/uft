@@ -1,0 +1,139 @@
+#!/usr/bin/perl -w
+
+# Author: Ryan Cox <ryan_cox@byu.edu>
+#
+# Copyright (C) 2013, Brigham Young University
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
+# to whom the Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all copies or
+# substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+# PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+# FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+#
+
+
+# Check every SLEEPTIME seconds to see if any user has exceed his 
+
+
+use strict;
+use POSIX qw(setsid);
+use File::Basename;
+sub daemonize();
+use Sys::Hostname;
+use Net::SMTP;
+use POSIX qw/strftime/;
+
+sub SLEEPTIME { 1 }
+
+# $maxmempercent is an INTEGER value!!!  Meaning 80==80 percent.
+my $maxmempercent = 25; # an integer, NOT a decimal value
+
+daemonize();
+my $hostname = hostname();
+
+#kill other instances
+local $SIG{'INT'} = sub { return 0; };
+system("killall -INT loginmemlimitenforcer >/dev/null 2>&1");
+sleep(1);
+local $SIG{'INT'} = sub { exit; };
+
+if($maxmempercent < 10) {
+	die "You really want to use $maxmempercent\% as the maximum memory in use per process???? I don't believe you.";
+}
+
+#make this slightly higher priority than user processes so that it hopefully survives swapping better
+system("renice -1 $$ >/dev/null 2>&1");
+
+# Reduce the chance of this getting killed by oom-killer
+open(OOM, ">/proc/self/oom_score_adj") or warn $!;
+print OOM "-700";
+close(OOM);
+
+
+while(1) {
+    eval {
+	my %users;
+	my %users_usage;
+	open(PS, 'ps h -eo user:16,pid,tty,%mem,uid,rss,args |') or die $!;
+	while(<PS>) {
+		/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)$/;
+		my $username = $1;
+		my $pid = $2;
+		my $tty = $3;
+		my $mem_percent = $4;
+		my $uid = $5;
+		my $rss = $6;
+		my $cmd = $7;
+
+		next if $uid < 1000; # skip system processes
+		if(not exists $users{$username}) {
+			$users{$username} = {};
+			$users_usage{$username} = 0;
+		}
+		$users{$username}{$pid} = {	'pid' => $pid,
+						'tty' => $tty,
+						'mem_percent' => $mem_percent,
+						'cmd' => $cmd,
+						'rss' => $rss,
+						'username' => $username,
+		};
+		$users_usage{$username} += $mem_percent;
+	}
+	close(PS);
+
+	foreach my $user(keys %users) {
+		if($users_usage{$user} > $maxmempercent) {
+			print "User '$user' is over $maxmempercent\%\nChoosing a process to kill\n";
+			my $highestmem_pid = -1;
+			my $highestmem_rss = -1;
+
+			foreach my $pid(keys %{$users{$user}}) {
+				if($users{$user}{$pid}{'rss'} > $highestmem_rss) {
+					$highestmem_rss = $users{$user}{$pid}{'rss'};
+					$highestmem_pid = $pid;
+				}
+			}
+			
+			my %proc = %{$users{$user}{$highestmem_pid}};
+			my $mem_GB = sprintf("%.1d", $proc{'rss'}/1024/1024);
+	
+			print "Found \"$proc{'cmd'}\" from $proc{'username'}\n";
+			kill 9, $proc{'pid'};
+			my $msg = "\n\n*** AUTOMATED MESSAGE ***\n$proc{'username'},\n\nThis is an automated message to inform you that your process $proc{'pid'} \"$proc{'cmd'}\" was killed due to excessive memory usage. Your processes were consuming $users_usage{$user}\% of memory on this host ($hostname) and were likely interfering with the work of other users. Users may not consume more than $maxmempercent\% of memory (subject to change without notice) on an login node, so please stay far below that.
+
+Process $proc{'pid'} \"$proc{'cmd'}\" was selected for termination since it was the process with the highest memory consumption ($mem_GB GB). If you need more memory, please submit this as part of a job. Sorry for the inconvenience. Please contact an admin if you need help.\n*** END AUTOMATED MESSAGE ***\n";
+			if( -e "/dev/$proc{'tty'}") {
+				open(PTS, ">>/dev/$proc{'tty'}") or warn $!;
+				print PTS $msg;
+				close(PTS);
+			}
+		}
+	}
+
+
+
+	wait;
+    };
+    sleep(SLEEPTIME);
+}
+
+sub daemonize() {
+	chdir '/'                 or die "Can't chdir to /: $!";
+	open STDIN, '/dev/null'   or die "Can't read /dev/null: $!";
+	open STDOUT, '>>/dev/null' or die "Can't write to /dev/null: $!";
+	open STDERR, '>>/dev/null' or die "Can't write to /dev/null: $!";
+	defined(my $pid = fork)   or die "Can't fork: $!";
+	exit if $pid;
+	setsid                    or die "Can't start a new session: $!";
+	umask 0;
+}

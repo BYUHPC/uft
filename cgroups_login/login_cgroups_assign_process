@@ -1,0 +1,10 @@
+#!/bin/bash
+
+#Ryan Cox. BYU. Dec 2012
+
+pid=$1
+username=$(/usr/bin/stat -c %U /proc/$pid)
+
+(("$UID"==0)) || (/bin/echo $pid > /cgroup/cpu/users/user_$username/tasks) >/dev/null 2>&1
+(("$UID"==0)) || (/bin/echo $pid > /cgroup/memory/users/user_$username/tasks) >/dev/null 2>&1
+

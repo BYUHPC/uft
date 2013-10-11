@@ -1,0 +1,3 @@
+SLURM already has support for cgroups but an extra feature is provided.  See: http://slurm.schedmd.com/cgroups.html, slurm.conf manpage, and cgroup.conf manpage.
+
+The helper script /etc/ssh/sshrc help "catch" users who use ssh to distribute tasks and assign them to the appropriate cgroup.  Requires SLURM 13.12.  The user can still get around it by creating a ~/.sshrc, unfortunately, though most users are unaware of such a file.

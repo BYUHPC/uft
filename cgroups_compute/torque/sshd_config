@@ -1,0 +1,2 @@
+#Append this to /etc/ssh/ssh_config
+AcceptEnv PBS_JOBID

@@ -1,0 +1,6 @@
+MAILTO=""
+
+#login_cgroups_assign isn't strictly necessary. Read the note at the top
+* * * * * root /usr/local/sbin/login_cgroups_assign
+#This next one should really be done through PAM... one of these days
+*/5 * * * * root /usr/local/sbin/login_cgroups_create_groups

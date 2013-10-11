@@ -1,0 +1,49 @@
+#!/bin/bash
+
+#Ryan Cox. BYU. Dec 2012
+#This script has several problems with it but it works
+# 1)  This file is really targeted for BYU and needs work to change that. Fortunately it's simply enough that it should be easy
+# 2)  The memory amounts are hard coded and specified in bytes
+# 3)  This reads /etc/passwd and creates cgroups for all users between uid 5000 and 65000. Intended to be cron'd
+#		* This should be done in PAM but isn't yet.  (It's on Ryan's when-I-get-around-to-it task list)
+#		* If not in PAM, you could easily create a safe setuid program that would do the same and place it in sshrc
+# 4)  It also sets a quota on /tmp.  BYU does this and you may not want to.
+
+users=$(awk -F: '$3 > 5000 && $3 < 65000 {print $1}' /etc/passwd)
+
+renice -n 5 -p $$ >/dev/null 2>&1
+
+mkdir -p /cgroup/{cpu,memory}
+mount -t cgroup -o cpu cpu /cgroup/cpu || true
+mount -t cgroup -o memory memory /cgroup/memory || true
+
+for user in $users
+do
+	mkdir -p /cgroup/{cpu,memory}/users/user_$user
+
+	chown $user:root /cgroup/{cpu,memory}/users/user_$user/tasks
+	chmod 260 /cgroup/{cpu,memory}/users/user_$user/tasks
+
+	
+	# 128 / 1024 = 1/8 (2 cpus on host w/16 cpus)
+	# this is a soft limit
+	echo 128 > /cgroup/cpu/users/user_$user/cpu.shares
+	
+	if (( `awk '$1 ~ /MemTotal:/ {print $2}' /proc/meminfo` > 200000000 ))
+	then
+		#bigmemssh
+		#set to 230 GB.  ~90%
+		echo 246960619520 > /cgroup/memory/users/user_$user/memory.limit_in_bytes
+		echo 246990619520 > /cgroup/memory/users/user_$user/memory.memsw.limit_in_bytes
+	else
+		# 16 GB mem
+		echo 17179869184 > /cgroup/memory/users/user_$user/memory.limit_in_bytes
+		# 16.1 GB mem + swap
+		echo 17284726784 > /cgroup/memory/users/user_$user/memory.memsw.limit_in_bytes
+	fi
+done
+
+for user in $users
+do
+	echo $user 0 31457280 0 0
+done | setquota -u -bc /tmp

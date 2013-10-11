@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Ryan Cox. BYU. 2013 
+# Checks to see if the user has no more jobs allocated on this node. There is a possible race condition where a new job starts before this one finishes and the checks don't catch it, though this Should Be Rare (TM).
+# This kills all of the user's processes, if any, and deletes his private /tmp and /dev/shm directories (created through the use of namespaces). It can be used in a SLURM epilog script but it doesn't run on each node in a multi-node job.  Probably best to use SPANK epilog.  One of these days I'll get around to it...
+
+function freeofuserjobs {
+	#returns 0 (i.e. TRUE in bash) if there are no jobs
+	local user="$1"
+	for pid in $(scontrol listpids 2>/dev/null |grep -v GLOBALID | awk "\$2 != $SLURM_JOB_ID {print \$1;}")
+	do
+		if [ $(stat -c %u "/proc/$pid/") == "$user" ]
+		then
+			#has jobs. return without doing anything
+			return 1
+		fi
+	done
+	# double check with the controller to make sure that the user has no jobs on here
+	# 2>&1 should take care of timeouts since it will say "timed out", thus wc -l will be > 0
+	return $(squeue -h -o %i -u "$user" -w $(hostname -s) 2>&1 | grep -v "$SLURM_JOB_ID" | wc -l)
+}
+
+if [[ "$SLURM_JOB_UID" -gt 1000 ]]
+then
+	if freeofuserjobs "$SLURM_JOB_UID"
+	then
+		if [ -n "$SLURM_JOB_USER" ]
+		then
+			rm -rf {/dev/shm,/tmp}/userns/"$SLURM_JOB_USER"
+		fi
+		pkill -9 -u "$SLURM_JOB_UID"
+	fi
+fi
+
+exit 0

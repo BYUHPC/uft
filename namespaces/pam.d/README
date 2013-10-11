@@ -1,0 +1,1 @@
+These files really only need the pam_namespace.so loaded.  You can extract those lines to add to your current configuration.  Be sure to check which ones need which options passed to it.

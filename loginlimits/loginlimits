@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Original Author:  Ryan Cox <ryan_cox@byu.edu>
+# Author:  Ryan Cox <ryan_cox@byu.edu>
 #
 # Copyright (C) 2013, Brigham Young University
 # 
@@ -26,7 +26,7 @@ Soft core limits allow a user to use 100% of all processor cores when no other u
 
 The memory and memory+swap limits are for all processes run by a user on this node. If a user hits the memory limit, some of that user's processes may be swapped out. Once the memory+swap limit is reached, the kernel will use the out-of-memory killer to kill one or more of that user's processes to lower the memory usage. Only the offending user's processes are sent into swap or subject to the oom-killer.
 
-The cputime limit is used to make this login node strictly a login node. Development, compiling, moving files around, and some limited testing of programs are permitted on login nodes. The testing should be limited to running the program for a few minutes. Note that "cputime" means CPU usage * time, so multi-threaded programs will hit the limit sooner.  Unfortunately scp and sftp are limited by this limit too; use scp.fsl.byu.edu for large file transfers.
+The cputime limit is used to make this login node strictly a login node. Development, compiling, moving files around, and some limited testing of programs are permitted on login nodes. The testing should be limited to running the program for a few minutes. Note that "cputime" means CPU usage * time, so multi-threaded programs will hit the limit sooner.
 
 EOF
 echo -e "\e[1mLimits:\e[0m"

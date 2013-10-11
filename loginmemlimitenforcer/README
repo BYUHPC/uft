@@ -1,0 +1,3 @@
+loginmemlimitenforcer checks periodically to see if a user has exceeded an administrator-defined threshold for memory usage.  If so, it kills the process owned by that user that uses the most memory.  It's a poor man's oom-killer.
+
+Because it is based on polling, loginmemlimitenforcer may not react in time to catch a user in time if an application quickly allocates memory.  Use cgroups if you can since it makes this polling mechanism unnecessary.  It's much better to let the kernel enforce restrictions.  See the cgroups_login directory for more information.

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Ryan Cox. BYU. October 2013
+# Check each process to see if it is whitelisted.  This allows users to move data around without hitting the cputime limit.
+#There are possible "security problems" since rsync and sftp clients (and others?) can launch other commands via "-e" and "!" respectively.  The processes can then continue without cpulimits.  This is not viewed as a problem since a user who is knowledgeable enough to do this intentionally is likely knowledgeable enough to submit batch jobs and not bother with this.  Anyone crazy enough to try it can be handled administratively after they are discovered.  Removal of a cputime limit on a login node doesn't seem like a real security threat.
+
 WHITELIST="/usr/libexec/openssh/sftp-server /usr/sbin/sshd /usr/bin/ssh /usr/bin/scp /usr/bin/rsync /usr/bin/sftp /bin/cp /bin/mv /bin/rm /bin/tar /bin/gzip /usr/bin/bzip2 /usr/bin/zip"
 CURRENT_DATE=$(date +%s)
 renice -n 10 $$ >/dev/null 2>/dev/null
@@ -32,14 +36,11 @@ function is_old_enough {
 for procdir in /proc/[0-9]*
 do
 	uid=$(stat -c %u "$procdir/")
-	if [ "$uid" != 0 ]
+	pid=$(basename $procdir)
+	exe=$(readlink "$procdir/exe")
+	if whitelisted "$exe" && is_old_enough "$procdir"
 	then
-		pid=$(basename $procdir)
-		exe=$(readlink "$procdir/exe")
-		if whitelisted "$exe" && is_old_enough "$procdir"
-		then
-			#echo Will remove limit in pid=$pid uid=$(stat -c %U "$procdir/"): $(cat "$procdir/cmdline")
-			echo -n 'Max cpu time=unlimited:unlimited' > "$procdir/limits"
-		fi
+		#echo Will remove limit in pid=$pid uid=$(stat -c %U "$procdir/"): $(cat "$procdir/cmdline")
+		echo -n 'Max cpu time=unlimited:unlimited' > "$procdir/limits"
 	fi
 done

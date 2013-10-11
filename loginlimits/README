@@ -1,0 +1,1 @@
+This beautifully written shell script reads certain cgroup information from the current cgroup as well as cputime limits.  It very verbosely explains some of the cgroup information.  It assumes that 1) cgroup limits are used, 2) the shell that is running the script is contained in a cgroup, 3) cputime limits are implemented.

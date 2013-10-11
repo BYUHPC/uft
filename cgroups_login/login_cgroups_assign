@@ -1,0 +1,33 @@
+#!/bin/bash
+
+#Ryan Cox. BYU. Dec 2012
+#This checks all unassigned processes just in case one slipped through somehow
+#Not strictly necessary
+
+renice -n 5 -p $$ >/dev/null 2>&1
+
+function assign_pid () {
+	pidfile=/proc/$pid
+	uid=$(stat -c %u $pidfile)
+	if (($uid>=5000 &&  $uid < 65000))
+	then
+		username=$(stat -c %U $pidfile)
+		echo $(stat -c %U $pidfile)
+		for cgroup in /cgroup/*
+		do
+			if [ -e $cgroup/users/user_$username ]
+			then
+				echo "$pid > $cgroup/users/user_$username/tasks"
+				echo $pid > $cgroup/users/user_$username/tasks
+			fi
+		done
+	fi
+}
+
+
+
+pids=$(cat /cgroup/cpu/tasks)
+for pid in $pids
+do
+	assign_pid $pid
+done

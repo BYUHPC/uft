@@ -1,0 +1,21 @@
+# /etc/ssh/sshrc
+# must do this for X forwarding purposes
+# reads from stdin so be careful what you place before it
+# see sshd manpage for details under SSHRC
+if read proto cookie && [ -n "$DISPLAY" ]; then
+	if [ `echo $DISPLAY | cut -c1-10` = 'localhost:' ]; then
+		# X11UseLocalhost=yes
+		echo add unix:`echo $DISPLAY | cut -c11-` $proto $cookie
+	else
+		# X11UseLocalhost=no
+		echo add $DISPLAY $proto $cookie
+	fi | xauth -q -
+fi
+
+#Change the paths if you install these elsewhere
+#Assign the parent process to the user's cgroup. That's where the user's processes launch from, not this script
+/usr/local/sbin/login_cgroups_assign_process $PPID
+#Assign this process to the user's cgroup so the oom notifier launches inside the right cgroup
+/usr/local/sbin/login_cgroups_assign_process $$
+#Notify the user on his/her terminals if an OOM event occurs in their cgroup
+/usr/local/sbin/oom_notifierd
