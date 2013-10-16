@@ -1,0 +1,15 @@
+This PAM module creates a cgroup per user in the memory and cpu subsystems whenever the user logs in.  The cgroups are initialized each time with the values provided as arguments to the module. 
+root is moved to the root of the cgroup so there is no limit.
+
+Include pam_cgroup_per_user.so at the bottom of /etc/pam.d/{sshd,sudo,sudo-i,su,su-l} and any other relevant files.
+
+Options:
+	memory.limit_in_bytes		Memory usage limit in the cgroup
+	memory.memsw.limit_in_bytes	Memory+swap usage limit in the cgroup
+	cpu.shares			Soft limit of CPU utilization: Soft CPU limit = (#CPUs * cpu.shares/1024)
+	user_cpu_dir			Path to the cpu cgroup directory you want to use (e.g. /cgroup/cpu/users)
+	user_mem_dir			Path to the memory cgroup directory you want to use (e.g. /cgroup/mem/users)
+
+Example:
+	session required pam_cgroup_per_user.so memory.memsw.limit_in_bytes=17G memory.limit_in_bytes=16G cpu.shares=1024
+
