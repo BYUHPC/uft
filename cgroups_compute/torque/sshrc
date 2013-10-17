@@ -11,5 +11,7 @@ if read proto cookie && [ -n "$DISPLAY" ]; then
 	fi | xauth -q -
 fi
 
+#Note that you cannot replace this with a PAM module and still use the $SLURM_JOB_ID: http://lists.mindrot.org/pipermail/openssh-unix-dev/2013-October/031701.html
+
 #For this to work you must set up sshd_config to AcceptEnv PBS_JOBID and ssh_config to SendEnv PBS_JOBID
 tm_adopt $PBS_JOBID $PPID
