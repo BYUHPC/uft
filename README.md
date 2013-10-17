@@ -1,3 +1,5 @@
+**User Fencing Tools**
+
 This collection of scripts and programs is designed to improve the stability of shared nodes, whether login or compute, in an HPC setting.  It may work in other scenarios but is not tested for anything but HPC.  The tools were developed by Ryan Cox at BYU's Fulton Supercomputing Lab in order to limit the ability of users to negatively affect each others' work on shared nodes.  These tools work to control memory and CPU usage, keep /tmp and /dev/shm clean through cgroups, namespaces, process limits, and a polling mechanism if cgroups aren't available.
 
 These tools are grouped into different categories and can generally be used separately.
