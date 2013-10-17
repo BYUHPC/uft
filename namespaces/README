@@ -2,6 +2,6 @@ See http://tech.ryancox.net/2013/07/per-user-tmp-and-devshm-directories.html for
 
 To use namespaces, some additions are required in /etc/pam.d/, /etc/security/namespace.conf, and a simple init script that should run before any user processes start.  It requires the installation of pam_namespace.so if it isn't already installed.
 
-This directory is structured like /etc except for slurm_epilog, a script that will clean up user /tmp and /dev/shm directories after their jobs exit.
+This directory is structured like /etc except for slurm_epilog, a script that will clean up user /tmp and /dev/shm directories after their jobs exit.  I need to test it as a SPANK (a SLURM plugin) epilog script but haven't done so yet.  It works as a SLURM epilog script.
 
 You can also create namespaces per "session".  This has the advantage that cleanup is done automatically but has the large disadvantage that the following will break:  "scp stuff remote1:/tmp/; ssh remote1 ls /tmp/stuff". /tmp/stuff won't be there because the scp and ssh commands created different sessions.  Not only will the ssh not see the file created by scp but it will have been deleted by the time it ran.  Multiple ssh connections to the same host will each have different views of /tmp.

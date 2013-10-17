@@ -1,5 +1,3 @@
+DEPRECATED: This is kept around for historical reasons but has been deprecated by pam_cgroup_per_user 
+
 These scripts create cgroups for users and assign them into through 1) sshrc and 2) a script that periodically (via cron) checks if the user had any processes not get assigned appropriately.
-
-This *should* all be done through PAM but hasn't been switched over to it yet.
-
-oom_notifierd is an out-of-memory notification tool for users.  It notifies them of an OOM event in their cgroup by writing to all of their login ttys.  It launches once per user.  And will exit after the user has no more processes running on that host.  It only uses a few hundred bytes of RAM so it shouldn't be a burden to have one per user.
