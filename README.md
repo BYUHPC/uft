@@ -21,7 +21,7 @@ These tools are grouped into different categories and can generally be used sepa
 	- Create a cgroup per user with admin-specified CPU, memory, and swap limits.  Intended for login nodes, not compute nodes.
 
 
-*RECOMMENDED CONFIGURATION*
+**RECOMMENDED CONFIGURATION**
 
 Login nodes:
 * pam_cgroup_per_user
