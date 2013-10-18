@@ -1,3 +1,0 @@
-MAILTO=""
-
-*/15 * * * * root /usr/local/sbin/remove_cputime_limit_for_whitelisted_progs >/dev/null 2>&1
