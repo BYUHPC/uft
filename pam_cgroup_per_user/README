@@ -1,5 +1,6 @@
-This PAM module creates a cgroup per user in the memory and cpu subsystems whenever the user logs in.  The cgroups are initialized each time with the values provided as arguments to the module. 
-root is moved to the root of the cgroup so there is no limit.
+This PAM module creates a cgroup per user in the memory and cpu subsystems whenever the user logs in.  The cgroups are initialized each time with the values provided as arguments to the module.  root is moved to the root of the cgroup so there is no limit.  Note that you must mount the cgroups ahead of time.
+
+libcgroup should (soon?) have this functionality through "templates".  At that time it may be advisable to switch to libcgroup, though the configuration can be a little more difficult.
 
 Include pam_cgroup_per_user.so at the bottom of /etc/pam.d/{sshd,sudo,sudo-i,su,su-l} and any other relevant files.
 

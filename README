@@ -24,7 +24,7 @@ oom_notifierd/
 	An out-of-memory notification tool for users.  It listens for events in the current or specified cgroup and writes to a user's ttys when OOM occurs.
 
 pam_cgroup_per_user/
-	Create a cgroup per user with admin-specified CPU, memory, and swap limits.  Intended for login nodes, not compute nodes.
+	Create a cgroup per user with admin-specified CPU, memory, and swap limits.  Intended for login nodes, not compute nodes.  libcgroup will (soon?) have this functionality added as "templates".  At that time it may be advisable to switch to libcgroup, though the configuration can be a little more difficult.
 
 
 RECOMMENDED SOFTWARE
