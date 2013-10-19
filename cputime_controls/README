@@ -13,3 +13,5 @@ Assumptions:
 An easy solution is to implement a cputime limit.  If you do *not* allow large data transfers on login nodes, all you need to do is modify /etc/security/limits.conf to implement cputime limits.
 
 If large data transfers *are* allowed, users may hit the cputime limits while doing approved activities.  For example, a large scp, rsync, cp, etc. will cause the user's process to die.  That is mostly solved by adding the included remove_cputime_limit_for_whitelisted_progs script to cron.  It checks each pid to see if the user is running a whitelisted program based on the /proc/$pid/exe link.  If they are, it removes the cputime limit from the process.  This is mostly safe from malicious users.  The most a malicious user is able to do is increase his cputime limit, something that can be handled administratively when discovered.
+
+Note that SLURM propagates limits by default. If you are using SLURM, do not propagate a cputime limit.  See PropagateResourceLimits and PropagateResourceLimitsExcept in the slurm.conf manpage.
