@@ -1,3 +1,5 @@
-SLURM already has support for cgroups but an extra feature is provided.  See: http://slurm.schedmd.com/cgroups.html, slurm.conf manpage, and cgroup.conf manpage.
+DOES NOT WORK YET.  WAITING FOR SLURM SUPPORT.  http://bugs.schedmd.com/show_bug.cgi?id=489
 
-The helper script /etc/ssh/sshrc help "catch" users who use ssh to distribute tasks and assign them to the appropriate cgroup.  Requires SLURM 13.12.  The user can still get around it by creating a ~/.sshrc, unfortunately, though most users are unaware of such a file.  Note that PAM is not an option:  http://lists.mindrot.org/pipermail/openssh-unix-dev/2013-October/031701.html
+SLURM already has support for cgroups but this provides an extra feature.  See: http://slurm.schedmd.com/cgroups.html, slurm.conf manpage, and cgroup.conf manpage.
+
+The helper script /etc/ssh/sshrc helps "catch" users who use ssh to distribute tasks and assigns them to the appropriate cgroup.  SLURM does not yet support this so it's a placeholder.  The user can still get around it by creating a ~/.sshrc, unfortunately, though most users are unaware of such a file.  Note that PAM is not an option:  http://lists.mindrot.org/pipermail/openssh-unix-dev/2013-October/031701.html

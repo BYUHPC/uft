@@ -5,7 +5,7 @@ This collection of scripts and programs is designed to improve the stability of 
 These tools are grouped into different categories and can generally be used separately.
 
 * cgroups_compute/
-	- Ideally your scheduler will have support for cgroups.  This directory contains scripts that catch ssh-launched tasks (i.e. tasks not launched through the scheduler) for SLURM (once 13.12 is released) and Torque.
+	- Ideally your scheduler will have support for cgroups.  This directory contains scripts that catch ssh-launched tasks (i.e. tasks not launched through the scheduler) for Torque and other schedulers (hopefully Slurm soon) that support adoption of arbitrary processes into their job accounting.
 	- Some incomplete code is included that may help in the development of a prologue-based mechanism for cgroups in Torque or other schedulers.  cgroups on compute nodes are probably only necessary if you allow node sharing (multiple jobs can run on the same node).
 * cgroups_login/
 	- DEPRECATED by pam_cgroup_per_user.  This contains files intended to control login node usage, specifically memory usage and CPU sharing.  It uses the memory and cpu (not cpuset) cgroups to provide hard memory limits and soft core limits on a per-user basis.
@@ -22,6 +22,7 @@ These tools are grouped into different categories and can generally be used sepa
 * pam_cgroup_per_user/
 	- Create a cgroup per user with admin-specified CPU, memory, and swap limits.  Intended for login nodes, not compute nodes.
 
+Patches for bugfixes and new functionality are welcomed.
 
 **RECOMMENDED CONFIGURATION**
 
