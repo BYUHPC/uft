@@ -1,3 +1,5 @@
 oom_notifierd is an out-of-memory notification tool for users.  It notifies them of an OOM event in their cgroup by writing to all of their login ttys.  It launches once per user and will exit after the user has no more processes running on that host.  It only uses a few hundred bytes of RAM so it shouldn't be a burden to have one per user.
 
 It should be launched inside of the target memory cgroup or have the target's path specified as the only argument to the program.
+
+oom_notifierd is released under the MIT license (see the top of oom_notifierd for a copy of the license).  Some GPLv2+ code is also incorporated to set the process' cmdline (for top, ps, etc.).  This can be disabled by setting -DNO_GPL while compiling if the GPL is a concern for you.

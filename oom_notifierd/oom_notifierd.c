@@ -1,27 +1,22 @@
 /* 
  * Description:
  * This program notifies a user when the oom-killer kills a process in that
- * user's cgroup.  It will only allow one copy of itself to run and exits if
- * another program of the same name by the same user exists.  It terminates
- * if the user has no other processes except this one within a certain amount
- * of time.  The notification is done to all of a user's ttys.  This was not
- * coded in a portable fashion so minor changes may be necessary for
- * different kernels/distros.
+ * user's cgroup.  This should be run per ssh session and will exit within
+ * TIMEOUT_SECONDS seconds if the user's ssh connection is terminated. The
+ * notification is only done for the pseudo-tty that is allocated for the
+ * ssh connection from which the oom_notifierd is run.  The best place to
+ * run this from is probably /etc/ssh/sshrc. This was not coded in a portable
+ * fashion so minor changes may be necessary for different kernels/distros.
+ *
  * See also: https://www.kernel.org/doc/Documentation/cgroups/memory.txt
  *
- * Bugs:  (TODO)
- *     - Check for other user procs only checks if itself is not in the list.
- *     		-Needs to check if any of the others are the same type of prog
- *     		but monitoring a different directory
- *
- * Assumptions:
- *     - You want to notify all of a user's TTYs
- *     - TTYs are in /dev/pts/
- *         - Change DEV_TTY_GLOB if not
+ * Note: Major changes were made in April 2016. Notification is now made to
+ * a single TTY instead of all TTYs from a user. The program exits based on
+ * availability of the TTY instead of counting processes from a user.
  *
  * Author:   Ryan Cox <ryan_cox@byu.edu>
  *
- * Copyright (C) 2013 Brigham Young University
+ * Copyright (C) 2013,2016 Brigham Young University
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -43,147 +38,59 @@
  *
  */
 
-#include <libgen.h>
-#include <sys/eventfd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <stdlib.h>
 #include <unistd.h>
-#include <stdint.h>             /* Definition of uint64_t */
-#include <stdio.h>
-#include <string.h>
 #include <errno.h>
-#include <glob.h>
-#include <sys/stat.h>
-#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h> /* definition of uint64_t */
+#include <string.h> /* strdup */
+#include <time.h> /* time, ctime_r */
+#include <sys/eventfd.h> /* eventfd */
+#include <sys/types.h> /* fstat and others */
+#include <sys/stat.h> /* fstat */
+#include <fcntl.h> /* open */
+#include <sys/time.h> /* {get,set}priority */
+#include <sys/resource.h> /* {get,set}priority */
+#include <poll.h> /* poll */
+#ifndef NO_GPL
+#include <libgen.h> /* basename */
+#include <malloc.h> /* mallopt */
+#include "setproctitle.h"
+#endif
 
 #define handle_error(msg) \
     do { perror(msg); exit(1); } while (0)
 
-
 #define ERROR_MSG_TO_USER "You exceeded your memory limit on this host. The kernel invoked the oom-killer which killed a process of yours to free up memory. No further action is required.\nRun 'loginlimits' to see the current limits.\a"
-#define DEV_TTY_GLOB "/dev/pts/*"
-#define TIMEOUT_SECONDS 60
+#define TIMEOUT_SECONDS 15
+/* This should never take much cputime away from people, so let's be nice */
+#define TARGET_NICE 15
 
 void daemonize() {
+	/* We will use stderr to communicate with the user. Close the others */
+	close(0);
+	close(1);
 	chdir("/");
-	fclose(stdin);
-	fclose(stdout);
-	fclose(stderr);
 	if(fork())
 		exit(0);
 	setsid();
 }
 
-int walkUserProcesses(int (*cb)(char *, uid_t, pid_t, pid_t, char *), char *arg1) {
-	int i, retval;
-	glob_t globbuf;
-	struct stat stat;
-	char *bname;
-	char path_temp[40];
-	pid_t pid, examine_pid;
-	uid_t uid;
-	pid = getpid();
-	uid = getuid();
-
-	globbuf.gl_offs = 0;
-	glob("/proc/[0-9]*", GLOB_NOSORT, NULL, &globbuf);
-	for(i=0; i < globbuf.gl_pathc; i++) {
-		if(lstat(globbuf.gl_pathv[i], &stat)==0) {
-			if(stat.st_uid == uid) {
-				strncpy(path_temp, globbuf.gl_pathv[i], 40);
-				bname = (char *)basename(globbuf.gl_pathv[i]);
-				examine_pid = atol(bname);
-				if( (retval = cb((char *)globbuf.gl_pathv[i], (uid_t)uid, (pid_t)pid, (pid_t)examine_pid, (char *)arg1)) ) {
-					globfree(&globbuf);
-					return retval;
-				}
-			}
-		}
-	}
-		
-	globfree(&globbuf);
-	return 0;
-}
-
-int findDuplicate(char *progname, uid_t uid) {
-	char mycmdline[1024];
-	int fd, bytes, i;
-
-	fd = open("/proc/self/cmdline", O_RDONLY);
-	if(fd == -1)
-		handle_error("Couldn't open /proc/self/cmdline?!");
-	bytes = read(fd, mycmdline, 1024);
-	close(fd);
-	/* args are separated by \0. replace with space */
-	for(i = 0; i < bytes-1; i++)
-		if(mycmdline[i] == '\0')
-			mycmdline[i] = ' ';
-
-	int findDuplicate_cb(char *path, uid_t uid, pid_t mypid, pid_t examine_pid, char *progname) {
-		int fd, bytes, i;
-		char filename[1024];
-		char cmdline[1024];
-		sprintf(filename, "%s/cmdline", path);
-		fd = open(filename, O_RDONLY);
-		if(fd != -1) {
-			bytes = read(fd, cmdline, 1024);
-			close(fd);
-			for(i = 0; i < bytes-1; i++)
-				if(cmdline[i] == '\0')
-					cmdline[i] = ' ';
-			if(strcmp(progname, cmdline)==0) {
-				if(mypid != examine_pid)
-					return 1;
-			}
-		}
-		return 0;
-	}
-	return walkUserProcesses(&findDuplicate_cb, mycmdline);
-}
-
-int userHasOtherProcesses(uid_t uid) {
-	int retval;
-	int userHasOtherProcesses_cb(char *path, uid_t uid, pid_t mypid, pid_t examine_pid, char *progname) {
-		return mypid!=examine_pid;
-	}
-	retval = walkUserProcesses(&userHasOtherProcesses_cb, NULL);
-	return retval;
-}
-
-void writeToTTY(char *path, char *msg) {
-	int ttyfd;
+void writeToTTY() {
 	ssize_t s;
-
-	ttyfd = open(path, O_WRONLY);
-	s = write(ttyfd, msg, strlen(msg));
-	if(s != strlen(ERROR_MSG_TO_USER))
-		printf("non-fatal: couldn't write to terminal: %s", path);
-	close(ttyfd);
-}
-
-void writeToUserTTYs(uid_t uid) {
-	glob_t globbuf;
-	struct stat stat;
-	int i;
 	char msg[1024];
 	time_t localtime;
 	char localtime_str[26];
 
 	time(&localtime);
 	ctime_r(&localtime, localtime_str);
-	sprintf(msg, "\e[31m\n\n<<<<<<<<<<<<<<\n%s\n%s\n>>>>>>>>>>>>>>\e[0m\n\n", localtime_str, ERROR_MSG_TO_USER);
-	globbuf.gl_offs = 0;
-	glob(DEV_TTY_GLOB, GLOB_NOSORT, NULL, &globbuf);
-	for(i=0; i < globbuf.gl_pathc; i++) {
-		if(lstat(globbuf.gl_pathv[i], &stat)==0) {
-			if(stat.st_uid == uid) {
-				writeToTTY(globbuf.gl_pathv[i], msg);
-			}
-		}
-	}
-	globfree(&globbuf);
+	sprintf(msg,
+		"\e[31m\n\n<<<<<<<<<<<<<<\n%s\n%s\n>>>>>>>>>>>>>>\e[0m\n\n",
+		localtime_str, ERROR_MSG_TO_USER);
+
+	s = write(2, msg, strlen(msg));
+	if((size_t)s != (size_t)strlen(msg))
+		exit(1); /* Couldn't write to tty so we might as well exit */
 }
 
 int get_memcg_self_path(char *path) {
@@ -258,6 +165,7 @@ int open_event_fd(char *memcg_path) {
 	char ecfd_str[32];
 	char *filename;
 	ssize_t s;
+
 	filename = malloc(sizeof(char) * (strlen(memcg_path) + 22));
 	sprintf(filename, "%s/memory.oom_control", memcg_path);
 	oomfd = open(filename, O_RDONLY);
@@ -278,7 +186,7 @@ int open_event_fd(char *memcg_path) {
 	/* configure event_control with file descriptors */
 	sprintf(ecfd_str, "%d %d", efd, oomfd);
 	s = write(ecfd, &ecfd_str, strlen(ecfd_str));
-	if(s != strlen(ecfd_str))
+	if((size_t)s != (size_t)strlen(ecfd_str))
 		handle_error("writing to cgroup.event_control");
 
 	return efd;
@@ -291,70 +199,132 @@ void usage(char *progname) {
 		"will result in a silent failure.\n", progname );
 }
 
+/* Check the hard link counter for stderr and check if it's writable using
+ * poll().  These checks should handle it whether a tty is allocated or not.
+ * We could detect which test to use, but doing both is probably better in
+ * case there are edge conditions of which I am not aware. */
+int pipe_alive() {
+	struct stat statbuf;
+	struct pollfd pfd;
+	int retval;
+
+	/* If number of hardlinks for the controlling tty (open through stderr)
+	 * is 0, the tty is deleted, presumably because the ssh connection is
+	 * now closed */
+
+	fstat(2, &statbuf);
+	if(statbuf.st_nlink < 1)
+		return 0;
+
+	/* If this isn't a TTY, the previous check won't help because the stderr
+	 * pipe always exists. Check if we can write to it. */
+
+	pfd.fd = 2;
+	pfd.events = POLLERR|POLLHUP|POLLNVAL;
+
+	retval =  poll(&pfd, 1, 0);
+
+	if(retval == -1 || !!pfd.revents) {
+		return 0;
+	}
+	return 1;
+}
+
 int main(int argc, char *argv[]) {
-	int efd;
+	int efd, retval, prio;
 	uint64_t u;
 	ssize_t s;
 	uid_t uid;
-	struct timeval timeout;
-	int retval;
 	fd_set set;
 	char *memcg_path;
+	struct timeval timeout;
+	#ifndef NO_GPL
+	char *pathcopy, *progname, cmdline[1024], *tty;
+	int istty = 1;
+	pid_t pgid;
+	#endif
+
+	/* maybe save a tiny number of bytes, because we can */
+	mallopt(M_MXFAST, 0);
 
 	if(argc > 2) {
 		usage(argv[0]);
 		exit(1);
-	} else if(argc==2 && argv[1][0] == '-') {
+	} else if(argc > 1 && argv[1][0] == '-') {
 		/* any attempt at -helpme, etc */
 		usage(argv[0]);
-		exit(0);
+		return 1;
 	}
 	
 
 	uid = getuid();
 	/* don't monitor root */
 	if(uid == 0)
-		exit(0);
-	if(findDuplicate(argv[0], uid))
-		exit(0);
+		return 0;
+
+	/* used for cmdline when this is not a tty */
+	pgid = getpgrp();
 
 	daemonize();
 
+	/* be nice */
+	prio = getpriority(PRIO_PROCESS, getpid());
+	if(prio < TARGET_NICE)
+		setpriority(PRIO_PROCESS, getpid(), TARGET_NICE);
+
 	if(argc == 2)
-		memcg_path = argv[1];
+		memcg_path = strdup(argv[1]);
 	else
 		memcg_path = get_cgroup_path();
 
+	/* set cmdline for ps, top, etc. if you're not concerned about GPL */
+	#ifndef NO_GPL
+	pathcopy = strdup(argv[0]);
+	progname = basename(pathcopy);
+	initproctitle(argc, argv);
+	tty = getenv("SSH_TTY");
+	if(tty == NULL) {
+		istty = 0;
+		tty = malloc(256);
+		snprintf(tty, 256, "[notty: pgid=%d]", pgid);
+	}
+	snprintf(cmdline, 1024, "%s %s", tty, memcg_path);
+	setproctitle(progname, cmdline);
+	if(!istty)
+		free(tty);
+	free(pathcopy);
+	#endif
+
+
 	efd = open_event_fd(memcg_path);
 
-	if(argc != 2)
-		free(memcg_path);
+	free(memcg_path);
+
 	while(1) {
-		do {
-			/* Check periodically if the user has other processes.
-			   Exit if none exist */
-			timeout.tv_sec = TIMEOUT_SECONDS;
-			timeout.tv_usec = 0;
-			FD_ZERO(&set);
-			FD_SET(efd, &set);
+		/* Check periodically if the user has other processes.
+		   Exit if none exist */
+		timeout.tv_sec = TIMEOUT_SECONDS;
+		timeout.tv_usec = 0;
+		FD_ZERO(&set);
+		FD_SET(efd, &set);
 
-			/* check for data in efd (i.e. oom condition triggered)  */
-			retval = select(FD_SETSIZE, &set, NULL, NULL, &timeout);
-			if(retval == 0) {
-				/* select() timed out */
-				if(userHasOtherProcesses(uid)==0)
-					exit(0);
-			} else {
-				/* select() found data or it failed */
-				s = read(efd, &u, sizeof(uint64_t));
-			}
-		} while(retval < 1);
-		if (s != sizeof(uint64_t))
-			handle_error("reading from event fd");
+		/* check for data in efd (i.e. oom triggered) */
+		retval = select(FD_SETSIZE, &set, NULL, NULL, &timeout);
+		if(retval == -1) {
+			handle_error("select returned -1");
+		} else if(retval == 0) {
+			if(!pipe_alive())
+				return 0;
+		} else {
+			/* select() found data */
+			s = read(efd, &u, sizeof(uint64_t));
+			if (s != sizeof(uint64_t)) 
+				handle_error("reading from event fd");
 
-		/* Wait a moment for the oom-killer to take effect. */
-		sleep(4);
-		writeToUserTTYs(uid);
+			/* Wait a moment for the oom-killer to take effect. */
+			sleep(4);
+			writeToTTY();
+		}
 	}
-	exit(0);
+	return 2;
 }
