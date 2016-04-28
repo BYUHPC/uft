@@ -1,4 +1,4 @@
-oom_notifierd is an out-of-memory notification tool for users.  It notifies them of an OOM event in their cgroup by writing to all of their login ttys.  It launches once per user and will exit after the user has no more processes running on that host.  It only uses a few hundred bytes of RAM so it shouldn't be a burden to have one per user.
+oom_notifierd is an out-of-memory notification tool for users.  It is meant to be run from /etc/ssh/sshrc.  Each instance will look up the memory cgroup that it is a member of then will monitor it for OOM events.  When one occurs, it is notified by the kernel and will then write to the user's tty (or non-tty as applicable).  It only uses a few hundred bytes of RAM so it shouldn't be a burden to have one per ssh connection.
 
 It should be launched inside of the target memory cgroup or have the target's path specified as the only argument to the program.
 
