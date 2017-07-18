@@ -110,14 +110,14 @@ int cgroup_write_setting(pam_handle_t *pamh, char *cg_path, char *file, char *va
 	int fd;
 	char *path;
 
-	path = malloc(sizeof(char) * (strlen(cg_path) + 1 + strlen(file)));
+	path = malloc(sizeof(char) * (strlen(cg_path) + 1 + strlen(file) + 1));
 	strcpy(path, cg_path);
 	strcat(path, "/");
 	strcat(path, file);
 	/* pam_syslog(pamh, LOG_ERR, "cgroup_write_setting %s > %s", value, path); */
 	fd = open(path, O_WRONLY);
 	free(path);
-	if(fd) {
+	if(fd != -1) {
 		write(fd, value, strlen(value));
 		close(fd);
 		return 1;
@@ -132,12 +132,12 @@ int cgroup_assign_pid(pam_handle_t *pamh, char *cg_path, pid_t pid) {
 	ssize_t wrote;
 	char *path, pid_str[16];
 
-	path = malloc(sizeof(char) * (strlen(cg_path) + 6));
+	path = malloc(sizeof(char) * (strlen(cg_path) + 6 + 1));
 	strcpy(path, cg_path);
 	strcat(path, "/tasks");
 	
 	fd = open(path, O_WRONLY);
-	if(fd) {
+	if(fd != -1) {
 		snprintf(pid_str, 16, "%d", pid);
 		wrote = write(fd, pid_str, strlen(pid_str));
 		close(fd);
@@ -181,7 +181,7 @@ char *get_root_cg_path(pam_handle_t *pamh, char *cg_global_path, char *subsys) {
 	char *search, *pos, *buf;
 	int bufsize;
 	
-	search = malloc(sizeof(char) * (strlen(subsys) + 2));
+	search = malloc(sizeof(char) * (strlen(subsys) + 2 + 1));
 	sprintf(search, "/%s/", subsys);
 	pos = strstr(cg_global_path, search);
 	if(pos == NULL)
