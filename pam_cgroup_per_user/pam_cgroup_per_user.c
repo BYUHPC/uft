@@ -86,6 +86,8 @@ typedef struct cg_path {
 	char *perf_event;
 } cg_path;
 
+int debug;
+
 void initialize_cgroup_struct(cg_path *cg) {
 	cg->cpuset = NULL;
 	cg->cpu = NULL;
@@ -108,14 +110,14 @@ int cgroup_write_setting(pam_handle_t *pamh, char *cg_path, char *file, char *va
 	int fd;
 	char *path;
 
-	path = malloc(sizeof(char) * (strlen(cg_path) + 1 + strlen(file)));
+	path = malloc(sizeof(char) * (strlen(cg_path) + 1 + strlen(file) + 1));
 	strcpy(path, cg_path);
 	strcat(path, "/");
 	strcat(path, file);
 	/* pam_syslog(pamh, LOG_ERR, "cgroup_write_setting %s > %s", value, path); */
 	fd = open(path, O_WRONLY);
 	free(path);
-	if(fd) {
+	if(fd != -1) {
 		write(fd, value, strlen(value));
 		close(fd);
 		return 1;
@@ -130,12 +132,12 @@ int cgroup_assign_pid(pam_handle_t *pamh, char *cg_path, pid_t pid) {
 	ssize_t wrote;
 	char *path, pid_str[16];
 
-	path = malloc(sizeof(char) * (strlen(cg_path) + 6));
+	path = malloc(sizeof(char) * (strlen(cg_path) + 6 + 1));
 	strcpy(path, cg_path);
 	strcat(path, "/tasks");
 	
 	fd = open(path, O_WRONLY);
-	if(fd) {
+	if(fd != -1) {
 		snprintf(pid_str, 16, "%d", pid);
 		wrote = write(fd, pid_str, strlen(pid_str));
 		close(fd);
@@ -179,7 +181,7 @@ char *get_root_cg_path(pam_handle_t *pamh, char *cg_global_path, char *subsys) {
 	char *search, *pos, *buf;
 	int bufsize;
 	
-	search = malloc(sizeof(char) * (strlen(subsys) + 2));
+	search = malloc(sizeof(char) * (strlen(subsys) + 2 + 1));
 	sprintf(search, "/%s/", subsys);
 	pos = strstr(cg_global_path, search);
 	if(pos == NULL)
@@ -202,6 +204,8 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 	initialize_cgroup_struct(&cg_global);
 	initialize_limits_struct(&limits);
 
+        debug = 0; //default false
+        
 	/* get user or fail */
 	retval = pam_get_item(pamh, PAM_USER, (void *) &user_name);
 	if (user_name == NULL || retval != PAM_SUCCESS)  {
@@ -232,12 +236,20 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 			strncpy(limits.memory_limit_in_bytes, 22 + *argv, NUMERIC_STRING_BYTES);
 		else if (!strncmp(*argv,"cpu.shares=",11))
 			strncpy(limits.cpu_shares, 11 + *argv, NUMERIC_STRING_BYTES);
+		else if (!strncmp(*argv,"debug",5))
+			debug=1;
 		else
 			pam_syslog(pamh, LOG_ERR, "unknown option: %s", *argv);
 	}
 	/* end parse arguments */
 
-	
+        if (debug) {
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.memsw.limit_in_bytes=%s", limits.memory_memsw_limit_in_bytes);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.limit_in_bytes=%s", limits.memory_limit_in_bytes);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: cpu.shares=%s", limits.cpu_shares);
+        }
+
+
 	/* default cgroup settings */
 	if (cg_global.cpu == NULL) {
 		cg_global.cpu = malloc(sizeof(char) * strlen(DEFAULT_CPU_PREFIX) + 1);
@@ -252,9 +264,15 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 	   this is important for sudo, su, etc to remove the process from a user cgroup.
 	   TODO: this should be a uid==0 check instead. */
 	if(strcmp(user_name, "root")==0) {
+                if (debug)
+                    pam_syslog(pamh, LOG_ERR, "DEBUGGING: Found root user");
+            
 		cg_user.cpu = get_root_cg_path(pamh, cg_global.cpu, "cpu");
 		cg_user.memory = get_root_cg_path(pamh, cg_global.memory, "memory");
 	} else {
+                if (debug)
+                    pam_syslog(pamh, LOG_ERR, "DEBUGGING: found non-root user: %s", user_name);
+            
 		/* create directories if they don't exist. ignore errors */
 		mkdir(cg_global.cpu, 0755);
 		mkdir(cg_global.memory, 0755);

@@ -10,6 +10,7 @@ Options:
 	cpu.shares			Soft limit of CPU utilization: Soft CPU limit = (#CPUs * cpu.shares/1024)
 	user_cpu_dir			Path to the cpu cgroup directory you want to use (e.g. /cgroup/cpu/users)
 	user_mem_dir			Path to the memory cgroup directory you want to use (e.g. /cgroup/mem/users)
+	debug				Enables basic debugging output
 
 Example:
 	session required pam_cgroup_per_user.so memory.memsw.limit_in_bytes=17G memory.limit_in_bytes=16G cpu.shares=1024
