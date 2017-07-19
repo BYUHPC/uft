@@ -93,10 +93,31 @@ void writeToTTY() {
 		exit(1); /* Couldn't write to tty so we might as well exit */
 }
 
+int csv_contains_field(const char *csv, const char *searchstr) {
+	char *token;
+        char *orig, *rest;
+        orig = rest = strdup(csv); //need to preserve the original pointer, to free later
+
+        
+	while ((token = strtok_r(rest, ",", &rest))) {
+		if(strcmp(searchstr, token) == 0) {
+                    if(orig != NULL)
+                        free(orig);
+                    return(1);
+		}
+	}
+        if(orig != NULL)
+            free(orig);
+	return(0);
+}
+
 int get_memcg_self_path(char *path) {
 	FILE *fp;
 	int is_memory_cgroup_line, pos, retval = 0;
-	char *strtok_ptr, *str1, *token, line[512];
+	char *strtok_ptr, *str1, *token, line[512], *tmppath;
+	
+	tmppath=NULL;
+	
 	fp = fopen("/proc/self/cgroup", "r");
 	if(fp==NULL)
 		handle_error("failed to open /proc/self/cgroup");
@@ -123,7 +144,10 @@ int get_memcg_self_path(char *path) {
 int get_memcg_mount_path(char *path) {
 	FILE *fp;
 	int is_memory_cgroup_line, pos, retval = 0;
-	char *strtok_ptr, *str1, *token, line[512];
+	char *strtok_ptr, *str1, *token, line[512], *tmppath;
+	
+	tmppath=NULL;
+	
 	fp = fopen("/proc/mounts", "r");
 	if(fp==NULL) {
 		printf("failed to open /proc/mounts");
@@ -133,13 +157,19 @@ int get_memcg_mount_path(char *path) {
 		is_memory_cgroup_line = 0;
 		for (pos = 0, str1 = line; ; pos++, str1 = NULL) {
 			token = strtok_r(str1, " ", &strtok_ptr);
-			if(token == NULL)
+		       
+			if(token == NULL) {
+				tmppath=NULL;
 				break;
-			if(pos == 0 && strcmp(token, "memory") == 0)
-				is_memory_cgroup_line = 1;
-			else if(pos == 1 && is_memory_cgroup_line) {
-				strcpy(path, token);
+			}
+						
+			if(pos == 1) {
+				tmppath=token; //Save the current path for potential future use
+			} else if (pos == 3 && csv_contains_field(token, "memory")) {
+				strncpy(path, tmppath, (strlen(tmppath)+1)*sizeof(char));
+				path[strlen(tmppath)] = '\0';
 				retval = 1;
+				break;
 			}
 		}
 	}
