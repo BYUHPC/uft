@@ -217,7 +217,7 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 	for (; argc-- > 0; ++argv) {
 		if (!strncmp(*argv,"user_mem_dir=",13)) {
 			cg_global.memory = (char *)(13 + *argv);
-			if (*cg_global.memory != '\0') {
+			if (*cg_global.memory == '\0') {
 				/* ignore the blank path provided via module arg */
 				cg_global.memory = NULL;
 			}
