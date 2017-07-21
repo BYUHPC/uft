@@ -327,6 +327,8 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 		/* write memory.limit_in_bytes AFTER memsw or it may fail since memsw must me >= mem */
 		cgroup_write_setting(pamh, cg_user.memory, "memory.memsw.limit_in_bytes", limits.memory_memsw_limit_in_bytes);
 		cgroup_write_setting(pamh, cg_user.memory, "memory.limit_in_bytes", limits.memory_limit_in_bytes);
+		/* some distros (notably RHEL7) seem to do better when memsw is written AFTER mem, so we'll do it again */
+		cgroup_write_setting(pamh, cg_user.memory, "memory.memsw.limit_in_bytes", limits.memory_memsw_limit_in_bytes);
 	}
 	/* assign process to cgroup */
 	pid = getpid();
