@@ -324,6 +324,12 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 
 		/* write cgroup settings */
 		cgroup_write_setting(pamh, cg_user.cpu, "cpu.shares", limits.cpu_shares);
+                
+                
+		/* For reasons that aren't entirely clear (and we don't have the patience to test) different
+		 * distributions seem to need the mem vs memsw settings in one order or another.  So, we're
+		 * writing the memsw limit both before *and* after the mem limit, to cover our bases */
+                
 		/* write memory.limit_in_bytes AFTER memsw or it may fail since memsw must me >= mem */
 		cgroup_write_setting(pamh, cg_user.memory, "memory.memsw.limit_in_bytes", limits.memory_memsw_limit_in_bytes);
 		cgroup_write_setting(pamh, cg_user.memory, "memory.limit_in_bytes", limits.memory_limit_in_bytes);
