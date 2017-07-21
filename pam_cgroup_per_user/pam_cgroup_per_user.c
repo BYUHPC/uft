@@ -243,12 +243,6 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 	}
 	/* end parse arguments */
 
-        if (debug) {
-                pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.memsw.limit_in_bytes=%s", limits.memory_memsw_limit_in_bytes);
-                pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.limit_in_bytes=%s", limits.memory_limit_in_bytes);
-                pam_syslog(pamh, LOG_ERR, "DEBUGGING: cpu.shares=%s", limits.cpu_shares);
-        }
-
 
 	/* default cgroup settings */
 	if (cg_global.cpu == NULL) {
@@ -259,6 +253,15 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 		cg_global.memory = malloc(sizeof(char) * strlen(DEFAULT_MEM_PREFIX) + 1);
 		strcpy(cg_global.memory, DEFAULT_MEM_PREFIX);
 	}
+
+	if (debug) {
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.memsw.limit_in_bytes=%s", limits.memory_memsw_limit_in_bytes);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.limit_in_bytes=%s", limits.memory_limit_in_bytes);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: cpu.shares=%s", limits.cpu_shares);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: user_cpu_dir=\"%s\"", cg_global.cpu);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: user_mem_dir=\"%s\"", cg_global.memory);
+        }
+
 
        	/* if it's root, assign it to the root cg.
 	   this is important for sudo, su, etc to remove the process from a user cgroup.
