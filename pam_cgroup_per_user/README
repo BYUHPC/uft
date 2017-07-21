@@ -10,6 +10,11 @@ Options:
 	cpu.shares			Soft limit of CPU utilization: Soft CPU limit = (#CPUs * cpu.shares/1024)
 	user_cpu_dir			Path to the cpu cgroup directory you want to use (e.g. /cgroup/cpu/users)
 	user_mem_dir			Path to the memory cgroup directory you want to use (e.g. /cgroup/mem/users)
+	cpu_subsys_name			Name of the cpu cgroup subsystem, used for parsing the cgroup path for the 
+					user root.  For example, "cpu" (default), or "cpu,cpuacct" (nondefault, but 
+					recommended for RHEL7)
+	mem_subsys_name			Name of the memory cgroup subsystem, used for parsing the cgroup path for the 
+					user root.  Default: "memory"
 	debug				Enables basic debugging output
 
 Example:

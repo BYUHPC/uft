@@ -66,6 +66,10 @@
 #define DEFAULT_CPU_PREFIX			"/cgroup/cpu/users"
 #define DEFAULT_MEM_PREFIX			"/cgroup/memory/users"
 
+#define DEFAULT_CPU_SUBSYS_NAME			"cpu"
+// #define DEFAULT_CPU_SUBSYS_NAME			"cpu,cpuacct"
+#define DEFAULT_MEM_SUBSYS_NAME			"memory"
+
 /* TODO:  separate definitions to .h */
 
 typedef struct limits {
@@ -199,6 +203,11 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 	char *user_name;
 	cg_path cg_user, cg_global;
 	limits limits;
+        
+        char *cpu_subsys_name, *mem_subsys_name;
+        
+        cpu_subsys_name = NULL;
+        mem_subsys_name = NULL;
 
 	initialize_cgroup_struct(&cg_user);
 	initialize_cgroup_struct(&cg_global);
@@ -238,11 +247,24 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 			strncpy(limits.cpu_shares, 11 + *argv, NUMERIC_STRING_BYTES);
 		else if (!strncmp(*argv,"debug",5))
 			debug=1;
-		else
+		else if (!strncmp(*argv,"cpu_subsys_name=",16)) {
+                        cpu_subsys_name = (char *)(16 + *argv);
+                        if (*cpu_subsys_name == '\0') {
+                                /* ignore the blank path provide via module arg */
+                                cpu_subsys_name = NULL;
+                        }
+                } 
+		else if (!strncmp(*argv,"mem_subsys_name=",16)) {
+                        mem_subsys_name = (char *)(16 + *argv);
+                        if (*mem_subsys_name == '\0') {
+                                /* ignore the blank path provide via module arg */
+                                mem_subsys_name = NULL;
+                        }
+                }
+                else
 			pam_syslog(pamh, LOG_ERR, "unknown option: %s", *argv);
 	}
 	/* end parse arguments */
-
 
 	/* default cgroup settings */
 	if (cg_global.cpu == NULL) {
@@ -253,6 +275,16 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 		cg_global.memory = malloc(sizeof(char) * strlen(DEFAULT_MEM_PREFIX) + 1);
 		strcpy(cg_global.memory, DEFAULT_MEM_PREFIX);
 	}
+	
+	if (cpu_subsys_name == NULL) {
+                cpu_subsys_name = malloc(sizeof(char) * strlen(DEFAULT_CPU_SUBSYS_NAME) + 1);
+                strcpy(cpu_subsys_name, DEFAULT_CPU_SUBSYS_NAME);
+        }       
+	if (mem_subsys_name == NULL) {
+                mem_subsys_name = malloc(sizeof(char) * strlen(DEFAULT_MEM_SUBSYS_NAME) + 1);
+                strcpy(mem_subsys_name, DEFAULT_MEM_SUBSYS_NAME);
+        }
+        
 
 	if (debug) {
                 pam_syslog(pamh, LOG_ERR, "DEBUGGING: memory.memsw.limit_in_bytes=%s", limits.memory_memsw_limit_in_bytes);
@@ -260,6 +292,8 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
                 pam_syslog(pamh, LOG_ERR, "DEBUGGING: cpu.shares=%s", limits.cpu_shares);
                 pam_syslog(pamh, LOG_ERR, "DEBUGGING: user_cpu_dir=\"%s\"", cg_global.cpu);
                 pam_syslog(pamh, LOG_ERR, "DEBUGGING: user_mem_dir=\"%s\"", cg_global.memory);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: cpu_subsys_name=\"%s\"", cpu_subsys_name);
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: mem_subsys_name=\"%s\"", mem_subsys_name);
         }
 
 
@@ -270,8 +304,8 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
                 if (debug)
                     pam_syslog(pamh, LOG_ERR, "DEBUGGING: Found root user");
             
-		cg_user.cpu = get_root_cg_path(pamh, cg_global.cpu, "cpu");
-		cg_user.memory = get_root_cg_path(pamh, cg_global.memory, "memory");
+		cg_user.cpu = get_root_cg_path(pamh, cg_global.cpu, cpu_subsys_name);
+		cg_user.memory = get_root_cg_path(pamh, cg_global.memory, mem_subsys_name);
 	} else {
                 if (debug)
                     pam_syslog(pamh, LOG_ERR, "DEBUGGING: found non-root user: %s", user_name);
@@ -296,9 +330,19 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, cons
 	}
 	/* assign process to cgroup */
 	pid = getpid();
-	cgroup_assign_pid(pamh, cg_user.cpu, pid);
-	cgroup_assign_pid(pamh, cg_user.memory, pid);
+        if (cg_user.cpu == NULL)
+            pam_syslog(pamh, LOG_ERR, "cpu cgroup specified is NULL; not assigning.  Check that the cgroup subsystem (\"%s\") exists.", cpu_subsys_name);
+        else
+            cgroup_assign_pid(pamh, cg_user.cpu, pid);
+        
+        if (cg_user.memory == NULL)
+            pam_syslog(pamh, LOG_ERR, "memory cgroup specified is NULL; not assigning.  Check that the cgroup subsystem (\"%s\") exists", mem_subsys_name);
+        else
+            cgroup_assign_pid(pamh, cg_user.memory, pid);
 
+        if (debug)
+                pam_syslog(pamh, LOG_ERR, "DEBUGGING: returning value: %u", retval);
+        
 	return retval;
 }
 
