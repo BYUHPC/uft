@@ -67,6 +67,18 @@
 #define TARGET_NICE 15
 
 void daemonize() {
+
+	/* This seems to be necessary on RHEL 8.5 at least, since the ssh connection does
+	 * not exit if you keep the stderr open.  This is a workaround until we figure
+	 * a better way. */
+	struct stat statbuf;
+	if(fstat(2, &statbuf) != -1) {
+		if(S_ISFIFO(statbuf.st_mode)) { /* if stderr is a FIFO */
+			/* Assume that we're running in a non-interactive shell, and we can safely exit. */
+			exit(0);
+		}
+	}
+
 	/* We will use stderr to communicate with the user. Close the others */
 	close(0);
 	close(1);
